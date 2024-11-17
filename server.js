@@ -1,10 +1,19 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const webPush = require('web-push');
 require('dotenv').config();
 
+// Configuración inicial
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Configurar web-push con las claves VAPID
+webPush.setVapidDetails(
+  'mailto:your-email@example.com', // Cambia por tu correo
+  process.env.VAPID_PUBLIC_KEY,
+  process.env.VAPID_PRIVATE_KEY
+);
 
 // Middleware
 app.use(cors());
@@ -18,10 +27,11 @@ mongoose.connect(process.env.MONGODB_URI, {
 .then(() => console.log('MongoDB conectado'))
 .catch(err => console.log(err));
 
-// Importar modelo
+// Modelos
 const Note = require('./models/Note');
+const Subscription = require('./models/Subscription');
 
-// Rutas
+// Rutas para notas
 // POST: Crear una nueva nota
 app.post('/api/notes', async (req, res) => {
   const { title, content } = req.body;
@@ -72,6 +82,40 @@ app.delete('/api/notes/:id', async (req, res) => {
   }
 });
 
+// Rutas para notificaciones push
+// POST: Guardar una nueva suscripción
+app.post('/api/subscribe', async (req, res) => {
+  const subscription = req.body;
+
+  try {
+    const newSubscription = new Subscription(subscription);
+    await newSubscription.save();
+    res.status(201).json({ message: 'Suscripción guardada' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// POST: Enviar notificaciones push
+app.post('/api/notify', async (req, res) => {
+  const { title, body } = req.body;
+
+  try {
+    const subscriptions = await Subscription.find();
+    const payload = JSON.stringify({ title, body });
+
+    const notifications = subscriptions.map(sub =>
+      webPush.sendNotification(sub, payload).catch(err => console.error('Error enviando notificación:', err))
+    );
+
+    await Promise.all(notifications);
+    res.status(200).json({ message: 'Notificaciones enviadas' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Iniciar el servidor
 app.listen(PORT, () => {
   console.log(`Servidor en ejecución en http://localhost:${PORT}`);
 });
